@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}{{ detail.name }} - Anvil Staking Tool{% endblock %}
+{% block content %}
+<a href="/" style="color:var(--text-dim);font-size:13px;text-decoration:none;">&larr; Back to Dashboard</a>
+
+<h1 class="section-title" style="margin-top:16px;">{{ detail.name }}</h1>
+<p class="section-sub">Stake &amp; unstake individual NFTs. Each transaction is separate (royalty-enforced).</p>
+
+{% if detail.error %}
+<div class="card error-card">
+    <h2 style="color:#ff6666;">Error</h2>
+    <p style="margin-top:8px;color:#ff6666;font-size:13px;">{{ detail.error }}</p>
+</div>
+{% else %}
+<div class="card" style="margin-bottom:20px;">
+    <div class="card-title">
+        <h2>{{ detail.nft_name }} ({{ detail.nft_symbol }})</h2>
+        {% if detail.is_approved %}
+            <span class="badge badge-green">Approved</span>
+        {% else %}
+            <span class="badge badge-warn">Not Approved</span>
+        {% endif %}
+    </div>
+
+    <div class="address">
+        <strong>NFT Contract:</strong> <a href="{{ explorer }}/address/{{ detail.nft_address }}" target="_blank">{{ detail.nft_address }}</a><br>
+        <strong>Staking Vault:</strong> <a href="{{ explorer }}/address/{{ detail.staking_address }}" target="_blank">{{ detail.staking_address }}</a><br>
+        {% if detail.reward_token_address %}
+        <strong>Reward Token:</strong> <a href="{{ explorer }}/address/{{ detail.reward_token_address }}" target="_blank">{{ detail.reward_token_address }}</a><br>
+        {% endif %}
+        <strong>Cooldown:</strong> {{ detail.cooldown_period_days }} days
+    </div>
+
+    <div class="stat-grid" style="margin-top:16px;">
+        <div class="stat">
+            <div class="stat-label">In Wallet (Unstaked)</div>
+            <div class="stat-value">{{ detail.wallet_tokens|length if detail.wallet_tokens else 0 }}</div>
+        </div>
+        <div class="stat">
+            <div class="stat-label">Currently Staked</div>
+            <div class="stat-value accent">{{ detail.staked_count }}</div>
+        </div>
+        <div class="stat">
+            <div class="stat-label">Pending Rewards</div>
+            <div class="stat-value accent">{{ detail.pending_rewards }}</div>
+        </div>
+        <div class="stat">
+            <div class="stat-label">Total Staked (Vault)</div>
+            <div class="stat-value" style="font-size:14px;">{{ detail.total_staked }}</div>
+        </div>
+        <div class="stat">
+            <div class="stat-label">Rewards Active</div>
+            <div class="stat-value" style="font-size:14px;">{{ 'Yes' if detail.rewards_active else 'No' }}</div>
+        </div>
+        <div class="stat">
+            <div class="stat-label">Cooldown Period</div>
+            <div class="stat-value" style="font-size:14px;">{{ detail.cooldown_period_days }} days</div>
+        </div>
+    </div>
+
+    <div class="actions" style="margin-top:16px;">
+        {% if not detail.is_approved %}
+        <button class="btn btn-warn" onclick="approveAll({{ detail.idx }}, this)">1. Approve Staking Contract</button>
+        {% endif %}
+        {% if detail.wallet_tokens %}
+        <button class="btn btn-primary" onclick="stakeAll({{ detail.idx }}, this)">Stake All ({{ detail.wallet_tokens|length }})</button>
+        {% endif %}
+        {% if detail.staked_count > 0 %}
+        <button class="btn btn-danger" onclick="unstakeAll({{ detail.idx }}, this)">Unstake All ({{ detail.staked_count }})</button>
+        <button class="btn btn-outline" onclick="claimRewards({{ detail.idx }}, this)">Claim Rewards</button>
+        {% endif %}
+        <button class="btn btn-outline" onclick="discover({{ detail.idx }}, this)">Refresh Tokens</button>
+    </div>
+</div>
+
+{% if detail.wallet_tokens %}
+<div class="card" style="margin-bottom:20px;">
+    <div class="card-title">
+        <h2>In Wallet ({{ detail.wallet_tokens|length }})</h2>
+    </div>
+    <p style="font-size:12px;color:var(--text-dim);margin-bottom:12px;">
+        Each token must be staked individually due to royalty enforcement. Click "Stake" on each token you want to stake.
+    </p>
+    <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+                <tr style="border-bottom:1px solid var(--border);">
+                    <th style="text-align:left;padding:8px;color:var(--text-dim);">Token ID</th>
+                    <th style="text-align:right;padding:8px;color:var(--text-dim);">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for tid in detail.wallet_tokens %}
+                <tr style="border-bottom:1px solid var(--border);">
+                    <td style="padding:8px;font-family:'IBM Plex Mono',monospace;">#{{ tid }}</td>
+                    <td style="padding:8px;text-align:right;">
+                        <button class="btn btn-primary btn-sm" onclick="stakeToken({{ detail.idx }}, {{ tid }}, this)">Stake</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+{% if detail.staking_details %}
+<div class="card" style="margin-bottom:20px;">
+    <div class="card-title">
+        <h2>Staked Tokens ({{ detail.staking_details|length }})</h2>
+    </div>
+    <p style="font-size:12px;color:var(--text-dim);margin-bottom:12px;">
+        Note: There is a {{ detail.cooldown_period_days }}-day cooldown after staking before you can unstake.
+    </p>
+    <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+            <thead>
+                <tr style="border-bottom:1px solid var(--border);">
+                    <th style="text-align:left;padding:8px;color:var(--text-dim);">Token ID</th>
+                    <th style="text-align:left;padding:8px;color:var(--text-dim);">Staked At</th>
+                    <th style="text-align:right;padding:8px;color:var(--text-dim);">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for s in detail.staking_details %}
+                <tr style="border-bottom:1px solid var(--border);">
+                    <td style="padding:8px;font-family:'IBM Plex Mono',monospace;">#{{ s.token_id }}</td>
+                    <td style="padding:8px;color:var(--text-dim);">{{ s.staked_at_date }}</td>
+                    <td style="padding:8px;text-align:right;">
+                        <button class="btn btn-danger btn-sm" onclick="unstakeToken({{ detail.idx }}, {{ s.token_id }}, this)">Unstake</button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}

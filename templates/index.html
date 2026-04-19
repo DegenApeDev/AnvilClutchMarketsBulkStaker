@@ -1,0 +1,139 @@
+{% extends "base.html" %}
+{% block title %}Anvil Staking Tool - Dashboard{% endblock %}
+{% block content %}
+<h1 class="section-title">Collections</h1>
+<p class="section-sub">Monitor and manage your NFT staking on Anvil (Clutch Market). Each NFT is staked individually.</p>
+
+<div class="auto-stake-bar">
+    <div>
+        <div class="label">Auto-Stake (watches for unstaked NFTs)</div>
+        <div class="status" id="auto-stake-status">Checking...</div>
+    </div>
+    <div style="display:flex;gap:8px;">
+        <button class="btn btn-primary btn-sm" onclick="startAutoStake(this)">Start</button>
+        <button class="btn btn-danger btn-sm" onclick="stopAutoStake(this)">Stop</button>
+    </div>
+</div>
+
+<script>
+(async () => {
+    const r = await apiCall('/api/auto_stake/status', 'GET');
+    const el = document.getElementById('auto-stake-status');
+    if (r) {
+        el.textContent = r.running ? `Running (every ${r.interval}s)` : 'Stopped';
+    } else {
+        el.textContent = 'Unable to fetch status';
+    }
+})();
+</script>
+
+{% if not connected %}
+<div class="card error-card">
+    <h2 style="color:#ff6666;">No Wallet Configured</h2>
+    <p style="margin-top:8px;color:var(--text-dim);">Set your <code>PRIVATE_KEY</code> in the <code>.env</code> file to get started.</p>
+</div>
+{% endif %}
+
+{% if collections_data %}
+<div class="cards">
+    {% for col in collections_data %}
+    {% set col_idx = loop.index0 %}
+    <div class="card {% if col.error %}error-card{% endif %}">
+        <div class="card-title">
+            <h2>{{ col.name }}</h2>
+            {% if col.error %}
+                <span class="badge badge-red">Error</span>
+            {% elif col.is_approved %}
+                <span class="badge badge-green">Approved</span>
+            {% else %}
+                <span class="badge badge-warn">Not Approved</span>
+            {% endif %}
+        </div>
+
+        {% if col.error %}
+            <p style="color:#ff6666;font-size:13px;">{{ col.error }}</p>
+        {% else %}
+            <div class="address">
+                NFT: <a href="{{ explorer }}/address/{{ col.nft_address }}" target="_blank">{{ col.nft_address[:8] }}...{{ col.nft_address[-6:] }}</a> &middot;
+                Vault: <a href="{{ explorer }}/address/{{ col.staking_address }}" target="_blank">{{ col.staking_address[:8] }}...{{ col.staking_address[-6:] }}</a>
+            </div>
+
+            <div class="stat-grid" style="margin-top:16px;">
+                <div class="stat">
+                    <div class="stat-label">In Wallet</div>
+                    <div class="stat-value">{{ col.wallet_tokens|length if col.wallet_tokens else 0 }}</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">Staked</div>
+                    <div class="stat-value accent">{{ col.staked_count }}</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">Pending Rewards</div>
+                    <div class="stat-value accent">{{ col.pending_rewards }}</div>
+                </div>
+                <div class="stat">
+                    <div class="stat-label">Total Staked (Vault)</div>
+                    <div class="stat-value" style="font-size:14px;">{{ col.total_staked }}</div>
+                </div>
+            </div>
+
+            <div class="actions">
+                {% if not col.is_approved %}
+                <button class="btn btn-warn btn-sm" onclick="approveAll({{ col_idx }}, this)">1. Approve Staking</button>
+                {% endif %}
+                {% if col.wallet_tokens %}
+                <button class="btn btn-primary btn-sm" onclick="stakeAll({{ col_idx }}, this)">Stake All ({{ col.wallet_tokens|length }})</button>
+                {% endif %}
+                {% if col.staked_count > 0 %}
+                <button class="btn btn-danger btn-sm" onclick="unstakeAll({{ col_idx }}, this)">Unstake All ({{ col.staked_count }})</button>
+                {% endif %}
+                {% if col.staked_count > 0 %}
+                <button class="btn btn-outline btn-sm" onclick="claimRewards({{ col_idx }}, this)">Claim Rewards</button>
+                {% endif %}
+                <a href="/collection/{{ col_idx }}" class="btn btn-outline btn-sm">Details &amp; Select</a>
+                <button class="btn btn-outline btn-sm" onclick="discover({{ col_idx }}, this)">Refresh Tokens</button>
+            </div>
+
+            {% if col.wallet_tokens %}
+            <div class="token-grid">
+                <h3>In Wallet ({{ col.wallet_tokens|length }})</h3>
+                <div class="tokens">
+                    {% for tid in col.wallet_tokens %}
+                    <span class="token-chip">
+                        <span class="token-id">#{{ tid }}</span>
+                        <span class="chip-actions">
+                            <button class="btn btn-primary btn-sm" style="padding:3px 8px;font-size:11px;" onclick="stakeToken({{ col_idx }}, {{ tid }}, this)">Stake</button>
+                        </span>
+                    </span>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            {% if col.staked_ids %}
+            <div class="token-grid">
+                <h3>Staked ({{ col.staked_ids|length }})</h3>
+                <div class="tokens">
+                    {% for tid in col.staked_ids %}
+                    <span class="token-chip staked">
+                        <span class="token-id">#{{ tid }}</span>
+                        <span class="chip-actions">
+                            <button class="btn btn-danger btn-sm" style="padding:3px 8px;font-size:11px;" onclick="unstakeToken({{ col_idx }}, {{ tid }}, this)">Unstake</button>
+                        </span>
+                    </span>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% elif connected %}
+<div class="card">
+    <h2>No Collections Configured</h2>
+    <p style="margin-top:8px;color:var(--text-dim);">Add collections in your <code>.env</code> file or use the API.</p>
+    <p style="margin-top:4px;color:var(--text-dim);font-size:13px;">To find the staking contract: stake 1 NFT manually on anvil.clutch.market, then check the "To" address on ApeScan.</p>
+</div>
+{% endif %}
+{% endblock %}
