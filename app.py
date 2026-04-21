@@ -233,14 +233,14 @@ def fetch_tokens_from_apescan(nft_address, wallet_address):
 
 def get_collection_size(nft_address):
     nft = get_nft_contract(nft_address)
-    try:
-        return nft.functions.collectionSize().call()
-    except Exception:
-        pass
-    try:
-        return nft.functions.totalSupply().call()
-    except Exception:
-        pass
+    for fn_name in ["collectionSize", "totalMinted", "totalSupply", "maxTotalSupply", "nextTokenIdToMint"]:
+        try:
+            val = getattr(nft.functions, fn_name)().call()
+            if val and val > 0:
+                logger.info(f"get_collection_size({nft_address[:10]}): {fn_name}() = {val}")
+                return val
+        except Exception:
+            continue
     return None
 
 
@@ -301,15 +301,18 @@ def discover_tokens(nft_address, staking_address, wallet_address, force=False):
     wallet = Web3.to_checksum_address(wallet_address)
     nft = get_nft_contract(nft_address)
     vault = get_staking_contract(staking_address)
+    vault_addr = Web3.to_checksum_address(staking_address)
 
     use_cache = not force
     cached = load_token_cache(nft_address, wallet_address) if use_cache else None
 
     if cached:
         candidate_ids = list(set(cached["wallet_tokens"] + cached["staked_tokens"]))
+        logger.info(f"Using cached {len(candidate_ids)} candidate IDs for {nft_address[:10]}, re-verifying on-chain")
         wallet_tokens, staked_tokens = _resolve_tokens_onchain(
             nft_address, staking_address, wallet_address, candidate_ids
         )
+        logger.info(f"Cache verification: {len(wallet_tokens)} wallet, {len(staked_tokens)} staked")
     else:
         candidate_ids = fetch_tokens_from_apescan(nft_address, wallet_address)
         if candidate_ids:
@@ -318,7 +321,11 @@ def discover_tokens(nft_address, staking_address, wallet_address, force=False):
                 nft_address, staking_address, wallet_address, candidate_ids
             )
         else:
-            logger.info(f"API empty, falling back to ownerOf scan for {nft_address[:10]}")
+            cs = get_collection_size(nft_address)
+            if cs:
+                logger.info(f"API empty, scanning 0..{cs} via ownerOf for {nft_address[:10]} (collection size: {cs})")
+            else:
+                logger.warning(f"API empty and no collection size found for {nft_address[:10]}, scanning 0..{NFT_SCAN_MAX_RANGE}")
             wallet_tokens = find_owned_tokens(nft_address, wallet_address)
             vault_owned = find_owned_tokens(nft_address, staking_address)
             recorded = get_recorded_staked(staking_address, wallet_address)
@@ -332,7 +339,9 @@ def discover_tokens(nft_address, staking_address, wallet_address, force=False):
                 except Exception:
                     pass
             wallet_tokens = [t for t in wallet_tokens if t not in staked_tokens]
+            logger.info(f"OwnerOf scan: {len(wallet_tokens)} wallet, {len(staked_tokens)} staked")
 
+    logger.info(f"Discovery result for {nft_address[:10]}: {len(wallet_tokens)} wallet tokens, {len(staked_tokens)} staked tokens")
     save_token_cache(nft_address, wallet_address, wallet_tokens, staked_tokens)
 
     staking_details = []
